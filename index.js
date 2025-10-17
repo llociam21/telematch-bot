@@ -1,59 +1,44 @@
-import 'dotenv/config';
-import { Telegraf, Markup } from 'telegraf';
+import { Telegraf } from "telegraf";
+import http from "http";
 
+// Inicialización del bot con tu token del archivo .env
 const bot = new Telegraf(process.env.BOT_TOKEN);
 
-// Identidad + asegurar que no haya webhook (necesario para polling)
-const me = await bot.telegram.getMe();
-console.log('Iniciando como @' + me.username);
-await bot.telegram.deleteWebhook().catch(() => {});
-console.log('Webhook borrado si existia');
+// --- COMANDOS DEL BOT ---
 
-// Menú de comandos (aparece al escribir /)
-await bot.telegram.setMyCommands([
-  { command: 'start', description: 'Iniciar' },
-  { command: 'help',  description: 'Ayuda' },
-  { command: 'ping',  description: 'Comprobar estado' }
-]);
-
-// Respuesta a /start con botones
+// Mensaje de bienvenida al iniciar el bot
 bot.start((ctx) => {
-  return ctx.reply(
-    '¡Hola! Soy MatchBot. ¿Qué quieres hacer?',
-    Markup.inlineKeyboard([
-      [Markup.button.callback('🎮 Iniciar reto', 'init_reto')],
-      [Markup.button.callback('📜 Ver reglas', 'ver_reglas')]
-    ])
+  ctx.reply(
+    "¡Hola! Soy MatchBot 🤖\n\nPulsa uno de los botones para comenzar:"
   );
 });
 
-bot.command('help', (ctx) =>
-  ctx.reply('Comandos: /start, /help, /ping. Usa los botones para navegar.')
-);
-
-bot.command('ping', (ctx) => ctx.reply('Pong ✅'));
-
-// Callbacks de los botones
-bot.action('init_reto', async (ctx) => {
-  await ctx.answerCbQuery();
-  return ctx.editMessageText('Cargando… (aquí luego conectamos el flujo de retos)');
+// Respuesta básica a cualquier texto
+bot.on("text", (ctx) => {
+  ctx.reply(Recibí: ${ctx.message.text});
 });
 
-bot.action('ver_reglas', async (ctx) => {
-  await ctx.answerCbQuery();
-  return ctx.reply('Reglas: respeto, consentimiento y diversión. (Luego pondremos /reglas completo)');
+// Manejo de errores del bot
+bot.catch((err) => {
+  console.error("Error del bot:", err);
 });
 
-// Eco para cualquier texto
-bot.on('text', (ctx) => ctx.reply('Recibí: "' + ctx.message.text + '"'));
+// Lanzamiento del bot (modo polling)
+bot.launch();
+console.log("🤖 Bot corriendo en modo local (polling)...");
 
-// Manejo de errores
-bot.catch((err) => console.error('Error del bot:', err));
+// Cierre ordenado cuando el servidor se detiene
+process.once("SIGINT", () => bot.stop("SIGINT"));
+process.once("SIGTERM", () => bot.stop("SIGTERM"));
 
-// Lanzar
-await bot.launch();
-console.log('Bot corriendo en modo local (polling)...');
+// --- Keep-alive HTTP server para Render ---
+const PORT = process.env.PORT || 10000;
 
-// Apagado limpio
-process.once('SIGINT', () => bot.stop('SIGINT'));
-process.once('SIGTERM', () => bot.stop('SIGTERM'));
+const server = http.createServer((req, res) => {
+  res.writeHead(200, { "Content-Type": "text/plain" });
+  res.end("OK");
+});
+
+server.listen(PORT, () => {
+  console.log(HTTP keep-alive escuchando en puerto ${PORT});
+});
