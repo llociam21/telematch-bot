@@ -1,33 +1,31 @@
 import { Telegraf } from "telegraf";
 import http from "http";
 
-// Inicialización del bot con tu token del archivo .env
+// Inicialización del bot con tu token
 const bot = new Telegraf(process.env.BOT_TOKEN);
 
 // --- COMANDOS DEL BOT ---
 
-// Mensaje de bienvenida al iniciar el bot
+// /start
 bot.start((ctx) => {
-  ctx.reply(
-    "¡Hola! Soy MatchBot 🤖\n\nPulsa uno de los botones para comenzar:"
-  );
+  ctx.reply("¡Hola! Soy MatchBot 🤖\n\nPulsa uno de los botones para comenzar.");
 });
 
-// Respuesta básica a cualquier texto
+// Respuesta a cualquier texto
 bot.on("text", (ctx) => {
   ctx.reply(Recibí: ${ctx.message.text});
 });
 
-// Manejo de errores del bot
+// Manejo de errores
 bot.catch((err) => {
   console.error("Error del bot:", err);
 });
 
-// Lanzamiento del bot (modo polling)
+// Iniciar el bot
 bot.launch();
 console.log("🤖 Bot corriendo en modo local (polling)...");
 
-// Cierre ordenado cuando el servidor se detiene
+// Finalizar correctamente al detener el servicio
 process.once("SIGINT", () => bot.stop("SIGINT"));
 process.once("SIGTERM", () => bot.stop("SIGTERM"));
 
