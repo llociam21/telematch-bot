@@ -1,42 +1,40 @@
 import { Telegraf } from "telegraf";
 import http from "http";
 
-// Inicialización del bot con el token del archivo .env
+// Bot
 const bot = new Telegraf(process.env.BOT_TOKEN);
 
-// --- COMANDOS DEL BOT ---
-
-// Comando /start
+// /start
 bot.start((ctx) => {
-  ctx.reply("¡Hola! Soy MatchBot 🤖\n\nPulsa uno de los botones para comenzar.");
+  ctx.reply("¡Hola! Soy MatchBot 🤖\nPulsa un botón para empezar.");
 });
 
-// Respuesta a cualquier texto
+// Texto genérico (sin comillas invertidas para evitar el error)
 bot.on("text", (ctx) => {
-  ctx.reply(Recibí: ${ctx.message.text});
+  try {
+    ctx.reply("Recibi: " + (ctx.message?.text ?? ""));
+  } catch (e) {
+    console.error("Error enviando eco:", e);
+  }
 });
 
-// Manejo de errores
-bot.catch((err) => {
-  console.error("Error del bot:", err);
-});
+// Errores del bot
+bot.catch((err) => console.error("Error del bot:", err));
 
-// Lanzamiento del bot
+// Lanzar
 bot.launch();
-console.log("🤖 Bot corriendo en modo local (polling)...");
+console.log("🤖 Bot corriendo en polling…");
 
-// Finalización correcta al detener el servicio
+// Paradas limpias
 process.once("SIGINT", () => bot.stop("SIGINT"));
 process.once("SIGTERM", () => bot.stop("SIGTERM"));
 
-// --- Keep-alive HTTP server para Render ---
+// Keep-alive HTTP para Render
 const PORT = process.env.PORT || 10000;
-
 const server = http.createServer((req, res) => {
   res.writeHead(200, { "Content-Type": "text/plain" });
   res.end("OK");
 });
-
 server.listen(PORT, () => {
-  console.log(HTTP keep-alive escuchando en puerto ${PORT});
+  console.log("HTTP keep-alive en puerto " + PORT);
 });
