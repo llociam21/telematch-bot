@@ -1,232 +1,146 @@
-// index.js — Telematch Bot (CommonJS)
-
-// 1) Cargas base
-require('dotenv').config();
-const { Telegraf, Markup } = require('telegraf');
-const http = require('http');
+// index.js (CommonJS) — Telegraf + servidor keep-alive para Render
+require("dotenv").config();
+const { Telegraf, Markup } = require("telegraf");
+const http = require("http");
 
 const BOT_TOKEN = process.env.BOT_TOKEN;
 if (!BOT_TOKEN) {
-  throw new Error('Falta BOT_TOKEN en variables de entorno');
+  throw new Error("Falta BOT_TOKEN en variables de entorno.");
 }
-
 const bot = new Telegraf(BOT_TOKEN);
 
-// 2) Textos (ES/EN)
-const i18n = {
-  es: {
-    welcomeTitle: '¡Hola! Soy MatchBot 🤖',
-    welcomeBody:
-      'Te ayudo a jugar *retos rápidos* para romper el hielo y conectar con otras personas.\n\n' +
-      'Elige una opción para comenzar:',
-    btnStart: '🎮 Iniciar reto',
-    btnRules: '📜 Ver reglas',
-    btnLang: '🌍 Cambiar a Inglés',
-    btnContact: '💌 Contacto / Feedback',
-    rules:
-      '📜 *Reglas rápidas*\n' +
-      '1) Elige un nivel y recibe un reto.\n' +
-      '2) Responde y avanza al siguiente.\n' +
-      '3) Juega con respeto y sentido del humor 😄',
-    contact:
-      '💌 *Contacto / Feedback*\n' +
-      '¿Ideas o problemas? Escríbeme por aquí y ¡gracias por mejorar el juego!',
-    pickLevel: 'Elige tu nivel de reto:',
-    level1: 'Nivel 1 (suave) 🟢',
-    level2: 'Nivel 2 (medio) 🟠',
-    level3: 'Nivel 3 (picante) 🔴',
-    back: '⬅️ Volver al menú',
-    pong: '🏓 ¡Pong!',
-    switchedTo: 'Idioma cambiado a *Español* 🇪🇸'
-  },
-  en: {
-    welcomeTitle: 'Hi! I’m MatchBot 🤖',
-    welcomeBody:
-      'I help you play *quick challenges* to break the ice and connect with people.\n\n' +
-      'Pick an option to start:',
-    btnStart: '🎮 Start challenge',
-    btnRules: '📜 View rules',
-    btnLang: '🌍 Switch to Spanish',
-    btnContact: '💌 Contact / Feedback',
-    rules:
-      '📜 *Quick rules*\n' +
-      '1) Pick a level and get a challenge.\n' +
-      '2) Reply and move to the next.\n' +
-      '3) Play respectfully and have fun 😄',
-    contact:
-      '💌 *Contact / Feedback*\n' +
-      'Got ideas or issues? Send me a message here—thanks for making the game better!',
-    pickLevel: 'Choose your challenge level:',
-    level1: 'Level 1 (easy) 🟢',
-    level2: 'Level 2 (medium) 🟠',
-    level3: 'Level 3 (spicy) 🔴',
-    back: '⬅️ Back to menu',
-    pong: '🏓 Pong!',
-    switchedTo: 'Language switched to *English* 🇬🇧'
-  }
-};
+// === Estado en memoria por usuario ===
+const sesiones = new Map(); // userId -> { nivel, reto, esperandoRespuesta: boolean }
 
-// 3) Preferencias por usuario (en memoria)
-const userPrefs = new Map(); // key: userId, value: { lang: 'es' | 'en' }
-const getLang = (id) => userPrefs.get(id)?.lang || 'es';
-const setLang = (id, lang) => {
-  const current = userPrefs.get(id) || {};
-  userPrefs.set(id, { ...current, lang });
-};
-const t = (id, key) => i18n[getLang(id)][key];
+const { niveles, getReto, verificarRespuesta } = require("./retos");
 
-// 4) Teclados
-const menuKeyboard = (lang) => {
-  const dict = i18n[lang];
+// ==== UI Helpers ====
+function menuPrincipal() {
   return Markup.inlineKeyboard([
-    [Markup.button.callback(dict.btnStart, 'start_challenge')],
-    [Markup.button.callback(dict.btnRules, 'show_rules')],
-    [
-      Markup.button.callback(
-        lang === 'es' ? i18n.es.btnLang : i18n.en.btnLang,
-        lang === 'es' ? 'lang_en' : 'lang_es'
-      )
-    ],
-    [Markup.button.callback(dict.btnContact, 'contact')]
+    [Markup.button.callback("🎮 Iniciar reto", "INICIAR_RETO")],
+    [Markup.button.callback("📜 Ver reglas", "VER_REGLAS")],
   ]);
-};
-
-const backKeyboard = (lang) =>
-  Markup.inlineKeyboard([[Markup.button.callback(i18n[lang].back, 'go_menu')]]);
-
-const levelKeyboard = (lang) =>
-  Markup.inlineKeyboard([
-    [Markup.button.callback(i18n[lang].level1, 'lvl_1')],
-    [Markup.button.callback(i18n[lang].level2, 'lvl_2')],
-    [Markup.button.callback(i18n[lang].level3, 'lvl_3')],
-    [Markup.button.callback(i18n[lang].back, 'go_menu')]
-  ]);
-
-// 5) Respuesta de bienvenida / menú
-async function sendMenu(ctx) {
-  const uid = ctx.from.id;
-  const lang = getLang(uid);
-  await ctx.replyWithMarkdown(
-    `*${i18n[lang].welcomeTitle}*\n\n${i18n[lang].welcomeBody}`,
-    menuKeyboard(lang)
-  );
 }
 
-// 6) Comandos
+function tecladoNiveles() {
+  return Markup.inlineKeyboard([
+    [Markup.button.callback("🟢 Fácil", "NIVEL_fácil")],
+    [Markup.button.callback("🟡 Medio", "NIVEL_medio")],
+    [Markup.button.callback("🔴 Difícil", "NIVEL_difícil")],
+    [Markup.button.callback("⬅️ Volver", "VOLVER_MENU")],
+  ]);
+}
+
+function tecladoOpciones(opciones) {
+  // crea botones de opciones como callbacks O_
+  const filas = opciones.map((op) => [Markup.button.callback(op, `O_${op}`)]);
+  filas.push([Markup.button.callback("❌ Cancelar", "CANCELAR_RETO")]);
+  return Markup.inlineKeyboard(filas);
+}
+
+// ==== /start ====
 bot.start(async (ctx) => {
-  const uid = ctx.from.id;
-  if (!userPrefs.has(uid)) setLang(uid, 'es'); // idioma por defecto
-  await sendMenu(ctx);
+  await ctx.reply("¡Hola! Soy MatchBot 🤖\nPulsa un botón para empezar.", menuPrincipal());
 });
 
-bot.command('menu', async (ctx) => sendMenu(ctx));
-bot.command('ping', async (ctx) => ctx.reply(i18n[getLang(ctx.from.id)].pong));
-
-// 7) Acciones de los botones
-bot.action('go_menu', async (ctx) => {
+// ==== Reglas ====
+bot.action("VER_REGLAS", async (ctx) => {
   await ctx.answerCbQuery();
-  // Reemplazamos el mensaje del botón por el menú actual
-  const uid = ctx.from.id;
-  const lang = getLang(uid);
   await ctx.editMessageText(
-    `*${i18n[lang].welcomeTitle}*\n\n${i18n[lang].welcomeBody}`,
-    { ...menuKeyboard(lang), parse_mode: 'Markdown' }
-  ).catch(async () => {
-    // Si no se puede editar (por antigüedad), enviamos uno nuevo
-    await sendMenu(ctx);
+    "📜 *Reglas*\n1) Elige un nivel.\n2) Responde seleccionando la opción correcta.\n3) ¡Suma aciertos! 🎯",
+    { parse_mode: "Markdown", ...menuPrincipal() }
+  );
+});
+
+// ==== Volver al menú ====
+bot.action("VOLVER_MENU", async (ctx) => {
+  await ctx.answerCbQuery();
+  await ctx.editMessageText("Menú principal:", menuPrincipal());
+});
+
+// ==== Iniciar flujo de reto ====
+bot.action("INICIAR_RETO", async (ctx) => {
+  await ctx.answerCbQuery();
+  // mostramos selección de nivel
+  await ctx.editMessageText("Elige un nivel para comenzar:", tecladoNiveles());
+});
+
+// ==== Selección de nivel ====
+niveles.forEach((nivel) => {
+  bot.action(`NIVEL_${nivel}`, async (ctx) => {
+    await ctx.answerCbQuery();
+    const uid = String(ctx.from.id);
+    const reto = getReto(nivel);
+    sesiones.set(uid, { nivel, reto, esperandoRespuesta: true });
+
+    await ctx.editMessageText(
+      `Nivel: *${nivel}*\n\n❓ ${reto.pregunta}`,
+      { parse_mode: "Markdown", ...tecladoOpciones(reto.opciones) }
+    );
   });
 });
 
-bot.action('show_rules', async (ctx) => {
-  await ctx.answerCbQuery();
-  const lang = getLang(ctx.from.id);
-  await ctx.editMessageText(i18n[lang].rules, {
-    ...backKeyboard(lang),
-    parse_mode: 'Markdown'
-  }).catch(async () => {
-    await ctx.replyWithMarkdown(i18n[lang].rules, backKeyboard(lang));
-  });
+// ==== Cancelar reto ====
+bot.action("CANCELAR_RETO", async (ctx) => {
+  await ctx.answerCbQuery("Reto cancelado.");
+  const uid = String(ctx.from.id);
+  sesiones.delete(uid);
+  await ctx.editMessageText("Reto cancelado. ¿Hacemos otra cosa?", menuPrincipal());
 });
 
-bot.action('contact', async (ctx) => {
+// ==== Recepción de respuesta por botones (opciones) ====
+bot.action(/O_(.+)/, async (ctx) => {
   await ctx.answerCbQuery();
-  const lang = getLang(ctx.from.id);
-  await ctx.editMessageText(i18n[lang].contact, {
-    ...backKeyboard(lang),
-    parse_mode: 'Markdown'
-  }).catch(async () => {
-    await ctx.replyWithMarkdown(i18n[lang].contact, backKeyboard(lang));
-  });
-});
+  const seleccion = ctx.match[1];
+  const uid = String(ctx.from.id);
+  const ses = sesiones.get(uid);
 
-bot.action('start_challenge', async (ctx) => {
-  await ctx.answerCbQuery();
-  const lang = getLang(ctx.from.id);
-  await ctx.editMessageText(i18n[lang].pickLevel, levelKeyboard(lang))
-    .catch(async () => {
-      await ctx.reply(i18n[lang].pickLevel, levelKeyboard(lang));
+  if (!ses || !ses.esperandoRespuesta) {
+    return ctx.reply("No hay un reto activo. Pulsa *Iniciar reto*.", {
+      parse_mode: "Markdown",
+      ...menuPrincipal(),
     });
-});
-
-// Cambio de idioma
-bot.action('lang_es', async (ctx) => {
-  await ctx.answerCbQuery();
-  setLang(ctx.from.id, 'es');
-  await ctx.replyWithMarkdown(i18n.es.switchedTo);
-  await sendMenu(ctx);
-});
-
-bot.action('lang_en', async (ctx) => {
-  await ctx.answerCbQuery();
-  setLang(ctx.from.id, 'en');
-  await ctx.replyWithMarkdown(i18n.en.switchedTo);
-  await sendMenu(ctx);
-});
-
-// Niveles (placeholder: por ahora solo confirmamos selección)
-bot.action(['lvl_1', 'lvl_2', 'lvl_3'], async (ctx) => {
-  await ctx.answerCbQuery();
-  const lang = getLang(ctx.from.id);
-  const map = {
-    lvl_1: i18n[lang].level1,
-    lvl_2: i18n[lang].level2,
-    lvl_3: i18n[lang].level3
-  };
-  await ctx.reply(`✅ ${map[ctx.match[0]]}\n(Pronto: retos reales por nivel 😉)`, backKeyboard(lang));
-});
-
-// 8) Respuesta genérica simple (eco) — útil mientras probamos
-bot.on('text', async (ctx) => {
-  const text = ctx.message.text || '';
-  // Si el usuario escribe algo que no sea comando, solo hacemos eco
-  if (!text.startsWith('/')) {
-    await ctx.reply(`Recibí: “${text}”`);
   }
+
+  const resultado = verificarRespuesta(ses.reto, seleccion);
+  const explicacion = ses.reto.explicacion ? `\n📝 ${ses.reto.explicacion}` : "";
+  await ctx.editMessageText(
+    `${resultado.correcta ? "✅" : "❌"} ${resultado.detalle}${explicacion}\n\n¿Otro reto?`,
+    menuPrincipal()
+  );
+  sesiones.delete(uid);
 });
 
-// 9) Logs y errores
-bot.catch((err, ctx) => {
-  console.error('❌ Error del bot:', err);
-  if (ctx && ctx.reply) {
-    ctx.reply('Ups, algo se rompió. Intenta de nuevo en unos segundos 🙏');
-  }
+// ==== Fallback: si el usuario escribe texto durante un reto, también lo evaluamos ====
+bot.on("text", async (ctx) => {
+  const uid = String(ctx.from.id);
+  const ses = sesiones.get(uid);
+  if (!ses || !ses.esperandoRespuesta) return; // ignoramos, está en menú
+
+  const txt = ctx.message.text;
+  const resultado = verificarRespuesta(ses.reto, txt);
+  const explicacion = ses.reto.explicacion ? `\n📝 ${ses.reto.explicacion}` : "";
+  await ctx.reply(
+    `${resultado.correcta ? "✅" : "❌"} ${resultado.detalle}${explicacion}\n\n¿Otro reto?`,
+    menuPrincipal()
+  );
+  sesiones.delete(uid);
 });
 
-// 🔌 Lanzamos el bot (polling)
+// ==== Lanzamos el bot (polling) ====
 bot.launch();
-console.log('🤖 Bot corriendo en modo polling…');
+console.log("🤖 Bot corriendo en modo polling...");
 
-// 🌐 Servidor HTTP keep-alive para Render
+// ==== Servidor HTTP keep-alive para Render ====
 const PORT = process.env.PORT || 10000;
-const server = http.createServer((_req, res) => {
-  res.statusCode = 200;
-  res.setHeader('Content-Type', 'text/plain; charset=utf-8');
-  res.end('Bot activo ✅\n');
+const server = http.createServer((_, res) => {
+  res.writeHead(200, { "content-type": "text/plain" });
+  res.end("bot activo\n");
 });
 server.listen(PORT, () => {
   console.log(`HTTP keep-alive escuchando en puerto ${PORT}`);
 });
 
-// 🧹 Apagado limpio
-process.once('SIGINT', () => bot.stop('SIGINT'));
-process.once('SIGTERM', () => bot.stop('SIGTERM'));
+// ==== Manejo de señales (apagado limpio) ====
+process.once("SIGINT", () => bot.stop("SIGINT"));
+process.once("SIGTERM", () => bot.stop("SIGTERM"));
