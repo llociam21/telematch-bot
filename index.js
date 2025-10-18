@@ -39,8 +39,7 @@ bot.hears("📜 Ver reglas", async (ctx) => {
 // 💬 Respuesta general a cualquier otro mensaje
 bot.on("text", async (ctx) => {
   const text = ctx.message.text;
-  await ctx.reply(📩 Recibí: ${text});
-});
+  await ctx.reply(`📩 Recibí: ${text}`);
 
 // 🚦 Lanzamos el bot
 bot.launch();
