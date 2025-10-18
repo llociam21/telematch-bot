@@ -1,10 +1,7 @@
 // 🧩 Importamos las librerías necesarias
-import { Telegraf, Markup } from "telegraf";
-import http from "http";
-import dotenv from "dotenv";
-
-// 🔐 Cargamos las variables de entorno (.env)
-dotenv.config();
+const { Telegraf, Markup } = require("telegraf");
+const http = require("http");
+require("dotenv").config();
 
 // 🚀 Inicializamos el bot con el token de Telegram
 const bot = new Telegraf(process.env.BOT_TOKEN);
