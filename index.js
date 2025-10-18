@@ -1,63 +1,58 @@
-// 🧩 Importamos las librerías necesarias
-const { Telegraf, Markup } = require("telegraf");
-const http = require("http");
-require("dotenv").config();
+import { Telegraf, Markup } from "telegraf";
+import dotenv from "dotenv";
+import http from "http";
 
-// 🚀 Inicializamos el bot con el token de Telegram
-const bot = new Telegraf(process.env.BOT_TOKEN);
+dotenv.config();
 
-// 🟢 Comando /start: muestra el teclado con opciones
-bot.start(async (ctx) => {
-  await ctx.reply(
-    "¡Hola! Soy MatchBot 🤖\nPulsa un botón para empezar.",
-    Markup.keyboard([
-      ["🎮 Iniciar reto"],
-      ["📜 Ver reglas"]
-    ])
-      .resize()
-      .oneTime()
-  );
+// --- Config ---
+const BOT_TOKEN = process.env.BOT_TOKEN;
+if (!BOT_TOKEN) {
+  console.error("Falta BOT_TOKEN en variables de entorno.");
+  process.exit(1);
+}
+const bot = new Telegraf(BOT_TOKEN);
+
+// --- UI: teclado principal ---
+const mainKeyboard = Markup.keyboard([
+  ["Iniciar reto 🎮"],
+  ["Ver reglas 📜"]
+]).resize();
+
+// --- Comandos y acciones ---
+bot.start((ctx) => {
+  return ctx.reply("¡Hola! Soy MatchBot. ¿Qué quieres hacer?", mainKeyboard);
 });
 
-// 🕹️ Acción al pulsar "Iniciar reto"
-bot.hears("🎮 Iniciar reto", async (ctx) => {
-  await ctx.reply("¡Vamos a jugar! 🎯 (demo)");
+bot.hears("Iniciar reto 🎮", (ctx) => {
+  return ctx.reply("¡Genial! Empezaremos pronto. (demo)");
 });
 
-// 📜 Acción al pulsar "Ver reglas"
-bot.hears("📜 Ver reglas", async (ctx) => {
-  await ctx.reply(
-    "📘 Reglas básicas de TeleMatch × Retos\n\n" +
-    "1️⃣ Mantén siempre respeto y consentimiento.\n" +
-    "2️⃣ Cada reto se juega en rondas, con preguntas o desafíos.\n" +
-    "3️⃣ Gana quien cumpla más objetivos o empate con creatividad.\n\n" +
-    "⚡ Diviértete y juega con responsabilidad.",
-    { parse_mode: "Markdown" }
-  );
+bot.hears("Ver reglas 📜", (ctx) => {
+  return ctx.reply("Reglas: 1) Diviértete 2) Respeta 3) ¡Juega!");
 });
 
-// 💬 Respuesta general a cualquier otro mensaje
+bot.command("ping", (ctx) => ctx.reply("pong"));
+
+// Respuesta general (eco) para cualquier otro texto
 bot.on("text", async (ctx) => {
   const text = ctx.message.text;
-  await ctx.reply(`📩 Recibí: ${text}`);
+  await ctx.reply(`Recibí: ${text}`);
+});
 
-// 🚀 Lanzamos el bot
+// --- Arranque del bot ---
 bot.launch();
-console.log("🤖 Bot corriendo en modo polling...");
+console.log("Bot corriendo en modo polling...");
 
-// 🌍 Servidor HTTP necesario para mantener vivo el bot en Render
-import http from "http";
+// --- Servidor HTTP keep-alive para Render ---
 const PORT = process.env.PORT || 10000;
-
-const server = http.createServer((req, res) => {
+const server = http.createServer((_req, res) => {
   res.writeHead(200, { "Content-Type": "text/plain" });
   res.end("Bot activo y corriendo correctamente.\n");
 });
-
 server.listen(PORT, () => {
   console.log(`HTTP keep-alive escuchando en puerto ${PORT}`);
 });
 
-// 🧩 Manejo de señales (para apagado limpio)
+// --- Apagado limpio ---
 process.once("SIGINT", () => bot.stop("SIGINT"));
 process.once("SIGTERM", () => bot.stop("SIGTERM"));
