@@ -41,20 +41,23 @@ bot.on("text", async (ctx) => {
   const text = ctx.message.text;
   await ctx.reply(`📩 Recibí: ${text}`);
 
-// 🚦 Lanzamos el bot
+// 🚀 Lanzamos el bot
 bot.launch();
 console.log("🤖 Bot corriendo en modo polling...");
 
-// ⚙️ Servidor HTTP necesario para mantener vivo el bot en Render
+// 🌍 Servidor HTTP necesario para mantener vivo el bot en Render
+import http from "http";
 const PORT = process.env.PORT || 10000;
+
 const server = http.createServer((req, res) => {
   res.writeHead(200, { "Content-Type": "text/plain" });
-  res.end("Bot activo ✅");
-});
-server.listen(PORT, () => {
-  console.log(🌐 HTTP keep-alive escuchando en puerto ${PORT});
+  res.end("Bot activo y corriendo correctamente.\n");
 });
 
-// 🧹 Manejo de señales (para apagado limpio)
+server.listen(PORT, () => {
+  console.log(`HTTP keep-alive escuchando en puerto ${PORT}`);
+});
+
+// 🧩 Manejo de señales (para apagado limpio)
 process.once("SIGINT", () => bot.stop("SIGINT"));
 process.once("SIGTERM", () => bot.stop("SIGTERM"));
