@@ -1,146 +1,204 @@
-// index.js (CommonJS) — Telegraf + servidor keep-alive para Render
+// index.js (CommonJS, ASCII puro)
 require("dotenv").config();
 const { Telegraf, Markup } = require("telegraf");
+const retos = require("./retos");
+const scores = require("./scores");
 const http = require("http");
 
 const BOT_TOKEN = process.env.BOT_TOKEN;
 if (!BOT_TOKEN) {
-  throw new Error("Falta BOT_TOKEN en variables de entorno.");
+  console.error("Falta BOT_TOKEN en variables de entorno.");
+  process.exit(1);
 }
+
 const bot = new Telegraf(BOT_TOKEN);
 
-// === Estado en memoria por usuario ===
-const sesiones = new Map(); // userId -> { nivel, reto, esperandoRespuesta: boolean }
+// Estado simple en memoria: userId -> { retoActual }
+const sesiones = new Map();
 
-const { niveles, getReto, verificarRespuesta } = require("./retos");
-
-// ==== UI Helpers ====
-function menuPrincipal() {
+// --- UI común ---
+function tecladoInicio() {
   return Markup.inlineKeyboard([
-    [Markup.button.callback("🎮 Iniciar reto", "INICIAR_RETO")],
-    [Markup.button.callback("📜 Ver reglas", "VER_REGLAS")],
+    [Markup.button.callback("Iniciar reto", "start_game")],
+    [Markup.button.callback("Ver reglas", "rules")],
+    [Markup.button.callback("Mi puntaje", "stats")],
+    [Markup.button.callback("Top 5", "top")]
   ]);
 }
 
 function tecladoNiveles() {
   return Markup.inlineKeyboard([
-    [Markup.button.callback("🟢 Fácil", "NIVEL_fácil")],
-    [Markup.button.callback("🟡 Medio", "NIVEL_medio")],
-    [Markup.button.callback("🔴 Difícil", "NIVEL_difícil")],
-    [Markup.button.callback("⬅️ Volver", "VOLVER_MENU")],
+    [
+      Markup.button.callback("Fácil", "nivel:facil"),
+      Markup.button.callback("Medio", "nivel:medio"),
+      Markup.button.callback("Difícil", "nivel:dificil")
+    ],
+    [Markup.button.callback("Volver", "home")]
   ]);
 }
 
 function tecladoOpciones(opciones) {
-  // crea botones de opciones como callbacks O_
-  const filas = opciones.map((op) => [Markup.button.callback(op, `O_${op}`)]);
-  filas.push([Markup.button.callback("❌ Cancelar", "CANCELAR_RETO")]);
+  // Cada opción se envía como payload ans:<texto>
+  const filas = opciones.map((op) => [Markup.button.callback(op.trim(), `ans:${op.trim()}`)]);
+  filas.push([Markup.button.callback("Cancelar", "home")]);
   return Markup.inlineKeyboard(filas);
 }
 
-// ==== /start ====
+// --- /start y home ---
 bot.start(async (ctx) => {
-  await ctx.reply("¡Hola! Soy MatchBot 🤖\nPulsa un botón para empezar.", menuPrincipal());
-});
-
-// ==== Reglas ====
-bot.action("VER_REGLAS", async (ctx) => {
-  await ctx.answerCbQuery();
-  await ctx.editMessageText(
-    "📜 *Reglas*\n1) Elige un nivel.\n2) Responde seleccionando la opción correcta.\n3) ¡Suma aciertos! 🎯",
-    { parse_mode: "Markdown", ...menuPrincipal() }
+  await ctx.reply(
+    "Hola, soy MatchBot. ¿Qué quieres hacer?",
+    tecladoInicio()
   );
 });
 
-// ==== Volver al menú ====
-bot.action("VOLVER_MENU", async (ctx) => {
-  await ctx.answerCbQuery();
-  await ctx.editMessageText("Menú principal:", menuPrincipal());
+bot.action("home", async (ctx) => {
+  await ctx.editMessageText("Menú principal", tecladoInicio());
 });
 
-// ==== Iniciar flujo de reto ====
-bot.action("INICIAR_RETO", async (ctx) => {
-  await ctx.answerCbQuery();
-  // mostramos selección de nivel
-  await ctx.editMessageText("Elige un nivel para comenzar:", tecladoNiveles());
+// --- reglas ---
+bot.action("rules", async (ctx) => {
+  const texto =
+    "Reglas:\n" +
+    "- Elige un nivel y responde.\n" +
+    "- Acierto = +10 puntos.\n" +
+    "- Puedes ver tu puntaje en 'Mi puntaje' y el 'Top 5'.";
+  // Intentar editar si venía de un mensaje con inline keyboard; si falla, manda nuevo
+  try {
+    await ctx.editMessageText(texto, tecladoInicio());
+  } catch {
+    await ctx.reply(texto, tecladoInicio());
+  }
 });
 
-// ==== Selección de nivel ====
-niveles.forEach((nivel) => {
-  bot.action(`NIVEL_${nivel}`, async (ctx) => {
-    await ctx.answerCbQuery();
-    const uid = String(ctx.from.id);
-    const reto = getReto(nivel);
-    sesiones.set(uid, { nivel, reto, esperandoRespuesta: true });
-
-    await ctx.editMessageText(
-      `Nivel: *${nivel}*\n\n❓ ${reto.pregunta}`,
-      { parse_mode: "Markdown", ...tecladoOpciones(reto.opciones) }
-    );
-  });
+// --- stats y top ---
+bot.action("stats", async (ctx) => {
+  const u = ctx.from;
+  const s = scores.getStats(u.id);
+  const texto =
+    `Tus estadísticas:\n` +
+    `- Nombre: ${u.first_name || "Desconocido"}\n` +
+    `- Puntos: ${s.points}\n` +
+    `- Aciertos: ${s.wins}\n` +
+    `- Partidas jugadas: ${s.played}`;
+  try {
+    await ctx.editMessageText(texto, tecladoInicio());
+  } catch {
+    await ctx.reply(texto, tecladoInicio());
+  }
 });
 
-// ==== Cancelar reto ====
-bot.action("CANCELAR_RETO", async (ctx) => {
-  await ctx.answerCbQuery("Reto cancelado.");
-  const uid = String(ctx.from.id);
-  sesiones.delete(uid);
-  await ctx.editMessageText("Reto cancelado. ¿Hacemos otra cosa?", menuPrincipal());
+bot.action("top", async (ctx) => {
+  const top = scores.getTop(5);
+  if (top.length === 0) {
+    try {
+      await ctx.editMessageText("Aún no hay jugadores en el ranking.", tecladoInicio());
+    } catch {
+      await ctx.reply("Aún no hay jugadores en el ranking.", tecladoInicio());
+    }
+    return;
+  }
+  const texto =
+    "Top 5:\n" +
+    top
+      .map((p, i) => `${i + 1}. ${p.name || "Anónimo"} - ${p.points} pts (aciertos: ${p.wins})`)
+      .join("\n");
+  try {
+    await ctx.editMessageText(texto, tecladoInicio());
+  } catch {
+    await ctx.reply(texto, tecladoInicio());
+  }
 });
 
-// ==== Recepción de respuesta por botones (opciones) ====
-bot.action(/O_(.+)/, async (ctx) => {
-  await ctx.answerCbQuery();
-  const seleccion = ctx.match[1];
-  const uid = String(ctx.from.id);
-  const ses = sesiones.get(uid);
+// --- iniciar juego ---
+bot.action("start_game", async (ctx) => {
+  try {
+    await ctx.editMessageText("Elige un nivel:", tecladoNiveles());
+  } catch {
+    await ctx.reply("Elige un nivel:", tecladoNiveles());
+  }
+});
 
-  if (!ses || !ses.esperandoRespuesta) {
-    return ctx.reply("No hay un reto activo. Pulsa *Iniciar reto*.", {
-      parse_mode: "Markdown",
-      ...menuPrincipal(),
-    });
+// --- elegir nivel ---
+bot.action(/^nivel:(facil|medio|dificil)$/, async (ctx) => {
+  const nivel = ctx.match[1];
+  const reto = retos.getReto(nivel); // {id, pregunta, opciones, explicacion}
+  const userId = ctx.from.id;
+
+  sesiones.set(userId, { retoActual: reto });
+
+  const texto = `Nivel: ${nivel}\n\n${reto.pregunta}`;
+  try {
+    await ctx.editMessageText(texto, tecladoOpciones(reto.opciones));
+  } catch {
+    await ctx.reply(texto, tecladoOpciones(reto.opciones));
+  }
+});
+
+// --- responder ---
+bot.action(/^ans:(.+)$/s, async (ctx) => {
+  const userId = ctx.from.id;
+  const name = ctx.from.first_name || "Jugador";
+  const ses = sesiones.get(userId);
+  if (!ses || !ses.retoActual) {
+    await ctx.answerCbQuery("No hay un reto activo. Inicia uno.");
+    return;
   }
 
-  const resultado = verificarRespuesta(ses.reto, seleccion);
-  const explicacion = ses.reto.explicacion ? `\n📝 ${ses.reto.explicacion}` : "";
-  await ctx.editMessageText(
-    `${resultado.correcta ? "✅" : "❌"} ${resultado.detalle}${explicacion}\n\n¿Otro reto?`,
-    menuPrincipal()
-  );
-  sesiones.delete(uid);
+  const elegido = ctx.match[1];
+  const ok = retos.checkRespuesta(ses.retoActual, elegido);
+
+  let texto;
+  if (ok) {
+    scores.addWin(userId, name);
+    texto =
+      "Respuesta correcta.\n" +
+      (ses.retoActual.explicacion ? `Explicación: ${ses.retoActual.explicacion}\n` : "") +
+      "\n¿Quieres jugar otra vez?";
+  } else {
+    scores.addLoss(userId, name);
+    texto =
+      "Respuesta incorrecta.\n" +
+      (ses.retoActual.explicacion ? `Explicación: ${ses.retoActual.explicacion}\n` : "") +
+      "\nInténtalo de nuevo o vuelve al menú.";
+  }
+
+  // limpiar reto
+  sesiones.set(userId, { retoActual: null });
+
+  const teclado = Markup.inlineKeyboard([
+    [Markup.button.callback("Otro reto", "start_game")],
+    [Markup.button.callback("Mi puntaje", "stats")],
+    [Markup.button.callback("Menú", "home")]
+  ]);
+
+  try {
+    await ctx.editMessageText(texto, teclado);
+  } catch {
+    await ctx.reply(texto, teclado);
+  }
 });
 
-// ==== Fallback: si el usuario escribe texto durante un reto, también lo evaluamos ====
+// --- fallback de texto: redirige a menú ---
 bot.on("text", async (ctx) => {
-  const uid = String(ctx.from.id);
-  const ses = sesiones.get(uid);
-  if (!ses || !ses.esperandoRespuesta) return; // ignoramos, está en menú
-
-  const txt = ctx.message.text;
-  const resultado = verificarRespuesta(ses.reto, txt);
-  const explicacion = ses.reto.explicacion ? `\n📝 ${ses.reto.explicacion}` : "";
-  await ctx.reply(
-    `${resultado.correcta ? "✅" : "❌"} ${resultado.detalle}${explicacion}\n\n¿Otro reto?`,
-    menuPrincipal()
-  );
-  sesiones.delete(uid);
+  await ctx.reply("Usa los botones para jugar.", tecladoInicio());
 });
 
-// ==== Lanzamos el bot (polling) ====
-bot.launch();
-console.log("🤖 Bot corriendo en modo polling...");
+// --- Lanzar bot ---
+bot.launch().then(() => {
+  console.log("Bot corriendo en modo polling...");
+});
 
-// ==== Servidor HTTP keep-alive para Render ====
+// --- HTTP keep-alive para Render ---
 const PORT = process.env.PORT || 10000;
-const server = http.createServer((_, res) => {
+const server = http.createServer((req, res) => {
   res.writeHead(200, { "content-type": "text/plain" });
-  res.end("bot activo\n");
+  res.end("bot ok\n");
 });
 server.listen(PORT, () => {
   console.log(`HTTP keep-alive escuchando en puerto ${PORT}`);
 });
 
-// ==== Manejo de señales (apagado limpio) ====
+// Manejo de señales
 process.once("SIGINT", () => bot.stop("SIGINT"));
 process.once("SIGTERM", () => bot.stop("SIGTERM"));
